@@ -3585,10 +3585,14 @@ sub DRAW
                         $dsdef .= ",-";
                         $dsdef .= ",SQRT";
                     } else {
-                        $dsdef  = "$first,";
-                        $dsdef .= join(",". param("${ds}_Formula") .",",
-                                      @dselements);
-                        $dsdef .= ",". param("${ds}_Formula")
+                        if(@dselements) {
+                            $dsdef  = "$first,";
+                            $dsdef .= join(",". param("${ds}_Formula") .",",
+                                          @dselements);
+                            $dsdef .= ",". param("${ds}_Formula")
+                        } else {
+                            $dsdef = "$first"
+                        }
                     }
                     $dsdef =~ s/\#/$count/g;
                     push @CDEF, join(':', 'CDEF', $ds .'='. $dsdef);
