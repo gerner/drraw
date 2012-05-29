@@ -31,6 +31,8 @@
 #
 # Home Page -- http://web.taranis.org/drraw/
 #
+# Zoom patch by Peter Romianowski (http://aprilmayjune.org)
+#
 
 use warnings;
 use strict;
@@ -363,22 +365,99 @@ function ViewerCountdown(target) {
       targetElement.innerHTML = "<b>Refreshing...</b>";
       setTimeout("ViewerCountdown(thetarget)", 10000);
   } else {
-      with (Math) {
-          min = floor((ViewerRefresh - elapsed) / 60);
-          sec = floor((ViewerRefresh - elapsed) % 60);
-          if (min < 1) {
-              if (sec < 30 && sec % 2 == 0)
-                  targetElement.innerHTML = "<b>Refreshing in "+ sec +"s</b>";
-              else
-                  targetElement.innerHTML = "Refreshing in "+ sec +"s";
-          } else
-              targetElement.innerHTML = "Refreshing in "+ min +"m "+ sec +"s";
-      }
+      min = Math.floor((ViewerRefresh - elapsed) / 60);
+      sec = Math.floor((ViewerRefresh - elapsed) % 60);
+      if (min < 1) {
+          if (sec < 30 && sec % 2 == 0)
+              targetElement.innerHTML = "<b>Refreshing in "+ sec +"s</b>";
+          else
+              targetElement.innerHTML = "Refreshing in "+ sec +"s";
+      } else
+          targetElement.innerHTML = "Refreshing in "+ min +"m "+ sec +"s";
       thetarget=target;
       setTimeout("ViewerCountdown(thetarget)", 1000);
   }
 }
 </script>
+
+
+<!--
+    START: Zoom patch (js)
+    The following javascript includes jQuery (http://www.jquery.com)
+    and adds zooming funcitonality to drraw quite similar to that
+    in cacti (http://www.cacti.net/image.php?image_id=36).
+
+    How does it work?
+    When the img-tag is rendered we add the current start and end
+    timestamp as unix-timestamp to the "axis"-attribute of that
+    img-tag. 
+    On mousedown/mouseover we just draw a layer over the
+    image indicating that we are selecting a range. On mouseup
+    we then calculate the new start and end timestamp, fill
+    these values into the form and submit it.
+-->
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.3.2/jquery.min.js"><!-- --></script>
+<script type="text/javascript">
+\$(document).ready(function() {
+    var form = \$('form:last');
+    if (form.find('[name=Start]').length > 0) {
+        // Since we do not know where the actual graphing
+        // area begins and ends we just approximate.
+        // You might have to change it if your generated 
+        // graphs are different.
+        var leftOffset = 65; 
+        var rightOffset = 25; 
+
+        var startX;
+        var endX;
+        var div = \$('<div style="border: 1px solid black; background-color: red; position: absolute; z-index: 1000" />');
+        var graph = \$('img[axis!=:]');
+        function formatDate(d) {
+            return d.getDate() + "." + (d.getMonth() + 1) + "." + d.getFullYear() + " " + d.getHours() + ":" + d.getMinutes()
+        }
+        div.appendTo('body').fadeTo(1, 0).mouseup(function(e) {
+            graph.trigger('mouseup', e);
+        }).mousemove(function(e) {
+            graph.trigger('mousemove', e);
+        });
+        graph.mousedown(function(e) {
+            startX = e.pageX;
+            div.fadeTo(600, 0.4);
+            return false;
+        }).mousemove(function(i, j) {
+            var e =  j || i;
+            var qThis = \$(this);
+            endX = Math.min(e.pageX, qThis.offset().left + qThis.width() - rightOffset);
+            endX = Math.max(qThis.offset().left + leftOffset, endX);
+            div.css('top', qThis.offset().top);
+            div.css('left', Math.min(endX, startX));
+            div.width(Math.abs(startX - endX));
+            div.height(qThis.height());
+        }).mouseup(function(i, j) {
+            var e = j || i;
+            div.fadeTo(1, 0);
+            if (Math.abs(endX - startX) > 5) {
+                var qThis = \$(this);
+                var timestamps = qThis.attr('axis').split(':');
+                var startts = parseInt(timestamps[0]) * 1000;
+                var endts = parseInt(timestamps[1]) * 1000;
+                var qThis = \$(this);
+                var tsspan = (endts - startts) / (qThis.width() - leftOffset - rightOffset);
+                var start = new Date((startts + (Math.min(startX, endX) - leftOffset - qThis.offset().left) * tsspan));
+                var end = new Date((startts + (Math.max(startX, endX) - leftOffset - qThis.offset().left) * tsspan));
+                form.find('[name=Start]').val(formatDate(start));
+                form.find('[name=End]').val(formatDate(end));
+                form.find('[name=Mode]').click();
+                return false;
+            }
+        });
+    }
+});
+</script>
+<!-- 
+    END: Zoom patch (js)
+-->
+
 END
 
 my $EditorJS = <<END;
@@ -3939,7 +4018,10 @@ sub GraphHTML
     my $type = Definition_Get($name, 'gFormat');
     my $url = $query->url(-path_info=>1, -query=>1, -relative=>1);
     if ( !defined($type) || $type =~ /^(PNG|GIF)/ ) {
-        return img({-src=>$url,-align=>'center', -border=>0,
+        # Zoom patch: Adding start and end timestamp to the axis-attribute of the image tag.
+	( my $startts, my $endts ) = RRDs::times($start, $end) if (defined($start));
+        return img({-src=>$url,-align=>'center', -border=>0, 
+                    -axis=>"$startts:$endts",
                     -onerror=>'this.onerror=null; this.src="/icons/unknown.gif"'});
     } elsif ( $type eq 'SVG' ) {
         return "<object data='$url' type='image/svg+xml' align='center'><embed src='$url' type='image/svg+xml' align='center'><noembed>Your browser does not support embedded $type files.</noembed></embed></object>";
